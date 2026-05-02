@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>SafeGuard Edge — Worker Safety Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Barlow+Condensed:wght@300;400;500;600;700&family=Barlow:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07090a;--s1:#0d1214;--s2:#131a1d;--s3:#1a2226;--s4:#212d31;
+  --b1:#2a3a3e;--b2:#3a4e54;--b3:#4a6268;
+  --t1:#ddeaed;--t2:#8faab0;--t3:#4d6c74;--t4:#2d4a52;
+  --amber:#f0a500;--amber2:#ffc840;--amber3:#fff0b3;--amber-d:#2a1a00;
+  --red:#e03030;--red2:#ff5555;--red3:#ffe0e0;--red-d:#2a0808;
+  --green:#00c878;--green2:#40ffaa;--green3:#ccffe8;--green-d:#002a18;
+  --blue:#2090e0;--blue2:#60c0ff;--blue3:#d0eeff;--blue-d:#001e3a;
+  --teal:#00c8b8;--teal2:#40ffe8;--teal-d:#002a26;
+  --font:'Barlow',sans-serif;--mono:'IBM Plex Mono',monospace;--display:'Barlow Condensed',sans-serif;
+  --r:6px;--r2:10px;--r3:14px;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--t1);font-family:var(--font)}
+a{color:inherit;text-decoration:none}
+
+/* ── LAYOUT ── */
+#app{display:grid;grid-template-rows:48px 1fr;height:100vh;overflow:hidden}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 20px;background:var(--s1);border-bottom:1px solid var(--b1);z-index:10}
+.main-body{display:grid;grid-template-columns:260px 1fr 280px;overflow:hidden}
+.sidebar{background:var(--s1);border-right:1px solid var(--b1);overflow-y:auto;padding:12px 0}
+.center{overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.rightbar{background:var(--s1);border-left:1px solid var(--b1);overflow-y:auto;padding:12px}
+
+/* ── TOPBAR ── */
+.logo{display:flex;align-items:center;gap:10px}
+.logo-hex{width:30px;height:30px;background:var(--amber);clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);display:flex;align-items:center;justify-content:center}
+.logo-hex svg{width:14px;height:14px}
+.logo-name{font-family:var(--display);font-size:18px;font-weight:700;letter-spacing:2px;color:var(--t1)}
+.logo-tag{font-family:var(--mono);font-size:9px;color:var(--t3);letter-spacing:1.5px}
+.topbar-pills{display:flex;align-items:center;gap:8px}
+.pill{font-family:var(--mono);font-size:9px;padding:3px 10px;border-radius:30px;border:1px solid;letter-spacing:.5px;white-space:nowrap}
+.pill-green{color:var(--green2);border-color:var(--green);background:var(--green-d)}
+.pill-red{color:var(--red2);border-color:var(--red);background:var(--red-d)}
+.pill-amber{color:var(--amber2);border-color:var(--amber);background:var(--amber-d)}
+.pill-teal{color:var(--teal2);border-color:var(--teal);background:var(--teal-d)}
+.ws-dot{width:8px;height:8px;border-radius:50%;background:var(--t3);transition:background .3s}
+.ws-dot.connected{background:var(--green);animation:ws-pulse 2s infinite}
+.ws-dot.error{background:var(--red);animation:ws-blink .6s infinite}
+@keyframes ws-pulse{0%,100%{box-shadow:0 0 0 0 rgba(0,200,120,.5)}50%{box-shadow:0 0 0 6px rgba(0,200,120,0)}}
+@keyframes ws-blink{0%,100%{opacity:1}50%{opacity:.3}}
+#clock{font-family:var(--mono);font-size:12px;color:var(--t3)}
+
+/* ── SECTION LABEL ── */
+.sec-label{font-family:var(--mono);font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--t3);padding:0 14px 6px;display:flex;align-items:center;gap:6px}
+.sec-label::after{content:'';flex:1;height:1px;background:var(--b1)}
+
+/* ── MODEL CARDS ── */
+.model-card{margin:0 10px 8px;padding:10px 12px;background:var(--s2);border-radius:var(--r2);border:1px solid var(--b1);cursor:pointer;transition:border-color .15s,background .15s}
+.model-card:hover{border-color:var(--b2)}
+.model-card.selected{border-color:var(--amber);background:var(--amber-d)}
+.model-card.alert-state{border-color:var(--red);background:var(--red-d);animation:card-blink 1.2s infinite}
+@keyframes card-blink{0%,100%{border-color:var(--red)}50%{border-color:#600}}
+.model-card.warn-state{border-color:var(--amber);background:var(--amber-d)}
+.mc-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.mc-name{font-family:var(--display);font-size:13px;font-weight:600;color:var(--t1);letter-spacing:.3px}
+.mc-format{font-family:var(--mono);font-size:8px;padding:2px 6px;border-radius:3px;background:var(--s3);color:var(--t2);border:1px solid var(--b1)}
+.mc-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+.mc-key{font-size:10px;color:var(--t3)}
+.mc-val{font-family:var(--mono);font-size:10px;font-weight:500}
+.mc-val.ok{color:var(--green2)}
+.mc-val.warn{color:var(--amber2)}
+.mc-val.bad{color:var(--red2)}
+.mc-bar{height:3px;background:var(--b1);border-radius:2px;margin:5px 0 2px;overflow:hidden}
+.mc-bar-fill{height:100%;border-radius:2px;transition:width .8s ease}
+.mc-note{font-family:var(--mono);font-size:8px;color:var(--t3)}
+
+/* ── CONSTRAINT PANEL ── */
+.constraint-panel{margin:0 10px 8px;padding:10px 12px;background:var(--s2);border-radius:var(--r2);border:1px solid var(--b1)}
+.cp-title{font-family:var(--mono);font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:8px}
+.cp-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.cp-key{font-size:10px;color:var(--t2)}
+.cp-val{font-family:var(--mono);font-size:10px;font-weight:500;color:var(--teal2)}
+.cp-blocked{color:var(--red2)}
+.cp-ok{color:var(--green2)}
+
+/* ── CENTER METRICS ── */
+.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.metric-tile{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px}
+.mt-val{font-family:var(--display);font-size:28px;font-weight:700;line-height:1;margin-bottom:3px}
+.mt-label{font-size:10px;color:var(--t2);font-weight:500;text-transform:uppercase;letter-spacing:.5px}
+.mt-sub{font-family:var(--mono);font-size:9px;color:var(--t3);margin-top:4px}
+
+/* ── ALERT BANNER ── */
+.alert-banner{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--red-d);border:1px solid var(--red);border-radius:var(--r2);animation:ab-pulse 1.2s infinite}
+@keyframes ab-pulse{0%,100%{border-color:var(--red)}50%{border-color:#600}}
+.ab-icon{font-size:18px;flex-shrink:0}
+.ab-body{flex:1}
+.ab-title{font-family:var(--display);font-size:14px;font-weight:700;color:var(--red2);letter-spacing:.3px}
+.ab-detail{font-family:var(--mono);font-size:9px;color:var(--t3);margin-top:2px}
+.ab-ack{font-family:var(--mono);font-size:9px;padding:5px 14px;border-radius:4px;background:transparent;border:1px solid var(--red);color:var(--red2);cursor:pointer;transition:.15s;white-space:nowrap}
+.ab-ack:hover{background:rgba(224,48,48,.15)}
+
+/* ── ZONE GRID ── */
+.zone-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.zone-card{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r2);padding:12px;position:relative;overflow:hidden;cursor:pointer;transition:border-color .15s}
+.zone-card:hover{border-color:var(--b2)}
+.zone-card.critical{border-color:var(--red);background:rgba(42,8,8,.6)}
+.zone-card.critical:hover{border-color:var(--red2)}
+.zone-card.warning{border-color:var(--amber);background:rgba(42,26,0,.6)}
+.zone-card.safe{border-color:var(--b1)}
+.zc-strip{position:absolute;top:0;left:0;width:3px;height:100%}
+.zone-card.critical .zc-strip{background:var(--red)}
+.zone-card.warning .zc-strip{background:var(--amber)}
+.zone-card.safe .zc-strip{background:var(--green)}
+.zc-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;padding-left:4px}
+.zc-name{font-family:var(--display);font-size:13px;font-weight:600;letter-spacing:.3px}
+.zc-id{font-family:var(--mono);font-size:9px;color:var(--t3)}
+.zc-reading{font-family:var(--mono);font-size:26px;font-weight:600;padding-left:4px;line-height:1}
+.zc-unit{font-size:10px;color:var(--t2);padding-left:4px;margin-top:2px}
+.zc-workers{display:flex;gap:3px;flex-wrap:wrap;margin-top:8px;padding-left:4px}
+.wd{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:7px;font-weight:600;border:1px solid}
+.wd-safe{background:var(--green-d);border-color:var(--green);color:var(--green2)}
+.wd-warn{background:var(--amber-d);border-color:var(--amber);color:var(--amber2)}
+.wd-crit{background:var(--red-d);border-color:var(--red);color:var(--red2);animation:wd-pulse .8s infinite}
+@keyframes wd-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+.zc-model{font-family:var(--mono);font-size:9px;color:var(--t3);padding-left:4px;margin-top:6px}
+.zc-status{font-family:var(--mono);font-size:9px;font-weight:600;text-transform:uppercase}
+
+/* ── LATENCY + POWER PANELS ── */
+.panels-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.panel{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r2);padding:12px 14px}
+.panel-title{font-family:var(--display);font-size:12px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px}
+.lat-row{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.lat-name{font-family:var(--mono);font-size:9px;color:var(--t2);width:90px;white-space:nowrap;overflow:hidden}
+.lat-track{flex:1;height:8px;background:var(--b1);border-radius:4px;overflow:hidden;position:relative}
+.lat-fill{height:100%;border-radius:4px;transition:width 1s}
+.lat-line{position:absolute;right:0;top:0;width:1.5px;height:100%;background:var(--b2)}
+.lat-val{font-family:var(--mono);font-size:9px;font-weight:500;width:36px;text-align:right}
+.score-cells{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.score-cell{background:var(--s3);border-radius:var(--r);padding:8px;border:1px solid var(--b1);text-align:center}
+.score-label{font-family:var(--mono);font-size:8px;color:var(--t3);margin-bottom:4px;text-transform:uppercase}
+.score-ring{position:relative;width:44px;height:44px;margin:0 auto 2px}
+.score-ring svg{transform:rotate(-90deg)}
+.score-num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;font-weight:600}
+
+/* ── RIGHT BAR (EVENT LOG) ── */
+.rb-title{font-family:var(--display);font-size:14px;font-weight:600;color:var(--t2);letter-spacing:.8px;text-transform:uppercase;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--b1)}
+.event-item{padding:8px 0;border-bottom:1px solid var(--b1);animation:ei-in .3s ease}
+@keyframes ei-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.ei-top{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.ei-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.ei-dot.critical{background:var(--red);box-shadow:0 0 5px var(--red)}
+.ei-dot.warning{background:var(--amber)}
+.ei-dot.safe{background:var(--green)}
+.ei-dot.info{background:var(--blue2)}
+.ei-label{font-family:var(--mono);font-size:9px;font-weight:600}
+.ei-label.critical{color:var(--red2)}
+.ei-label.warning{color:var(--amber2)}
+.ei-label.safe{color:var(--green2)}
+.ei-label.info{color:var(--blue2)}
+.ei-time{font-family:var(--mono);font-size:8px;color:var(--t3);margin-left:auto}
+.ei-zone{font-size:10px;color:var(--t1);margin-bottom:2px}
+.ei-model{font-family:var(--mono);font-size:8px;color:var(--t3)}
+.ei-lat{font-family:var(--mono);font-size:8px}
+.ei-val{font-size:10px;color:var(--t2);margin-top:2px}
+
+/* ── STATS PANEL ── */
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px}
+.stat-box{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r);padding:8px}
+.sb-val{font-family:var(--mono);font-size:18px;font-weight:600;line-height:1}
+.sb-label{font-size:9px;color:var(--t3);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+
+/* ── LOADING STATE ── */
+#loading-overlay{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100;transition:opacity .5s}
+#loading-overlay.hidden{opacity:0;pointer-events:none}
+.loading-hex{width:60px;height:60px;background:var(--amber);clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);animation:spin-hex 2s linear infinite}
+@keyframes spin-hex{to{transform:rotate(360deg)}}
+.loading-text{font-family:var(--mono);font-size:11px;color:var(--t3);margin-top:20px;letter-spacing:2px}
+
+/* ── UTILS ── */
+.flex{display:flex}.items-center{align-items:center}.gap-6{gap:6px}.gap-8{gap:8px}.gap-10{gap:10px}
+.mb-8{margin-bottom:8px}.mt-4{margin-top:4px}
+.divider{height:1px;background:var(--b1);margin:10px 0}
+.text-amber{color:var(--amber2)}.text-red{color:var(--red2)}.text-green{color:var(--green2)}.text-teal{color:var(--teal2)}.text-muted{color:var(--t3)}
+.mono{font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="loading-hex"></div>
+  <div class="loading-text">INITIALIZING EDGE INFERENCE ENGINE...</div>
+</div>
+
+<div id="app">
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-hex">
+        <svg viewBox="0 0 14 14" fill="none">
+          <path d="M7 2L11 4.5V9.5L7 12L3 9.5V4.5L7 2Z" stroke="#07090a" stroke-width="1.2" fill="none"/>
+          <circle cx="7" cy="7" r="1.5" fill="#07090a"/>
+        </svg>
+      </div>
+      <div>
+        <div class="logo-name">SAFEGUARD EDGE</div>
+        <div class="logo-tag">ON-DEVICE INFERENCE · NO CLOUD · NO EGRESS</div>
+      </div>
+    </div>
+    <div class="topbar-pills">
+      <div class="ws-dot" id="ws-dot"></div>
+      <span class="pill pill-green" id="conn-pill">CONNECTING...</span>
+      <span class="pill pill-red" id="cloud-pill">☁ CLOUD BLOCKED</span>
+      <span class="pill pill-amber" id="alert-pill">0 ALERTS</span>
+      <span class="pill pill-teal" id="infer-pill">0 INF/MIN</span>
+      <span id="clock" class="mono">--:--:--</span>
+    </div>
+  </div>
+
+  <!-- MAIN BODY -->
+  <div class="main-body">
+
+    <!-- LEFT SIDEBAR: Models -->
+    <div class="sidebar">
+      <div class="sec-label">On-Device Models</div>
+
+      <div id="model-list">
+        <!-- populated by JS -->
+      </div>
+
+      <div class="divider"></div>
+      <div class="sec-label">Enforcement</div>
+
+      <div class="constraint-panel">
+        <div class="cp-title">Policy Constraints</div>
+        <div class="cp-row"><span class="cp-key">Cloud API</span><span class="cp-val cp-blocked">BLOCKED</span></div>
+        <div class="cp-row"><span class="cp-key">Data egress</span><span class="cp-val cp-blocked">BLOCKED</span></div>
+        <div class="cp-row"><span class="cp-key">Max model size</span><span class="cp-val">&lt;50 MB</span></div>
+        <div class="cp-row"><span class="cp-key">Max latency</span><span class="cp-val">&lt;100 ms</span></div>
+        <div class="cp-row"><span class="cp-key">Power scoring</span><span class="cp-val cp-ok">ENABLED</span></div>
+        <div class="cp-row"><span class="cp-key">Violations</span><span class="cp-val" id="violation-count">0</span></div>
+      </div>
+
+      <div class="constraint-panel">
+        <div class="cp-title">System Health</div>
+        <div class="cp-row"><span class="cp-key">Active workers</span><span class="cp-val" id="sb-workers">—</span></div>
+        <div class="cp-row"><span class="cp-key">Zones monitored</span><span class="cp-val" id="sb-zones">—</span></div>
+        <div class="cp-row"><span class="cp-key">Total inferences</span><span class="cp-val" id="sb-infer">—</span></div>
+        <div class="cp-row"><span class="cp-key">Cloud requests blocked</span><span class="cp-val cp-ok">0</span></div>
+      </div>
+    </div>
+
+    <!-- CENTER: Dashboard -->
+    <div class="center">
+
+      <!-- Alert banners -->
+      <div id="alert-banners"></div>
+
+      <!-- Metrics row -->
+      <div class="metric-grid">
+        <div class="metric-tile">
+          <div class="mt-val" id="m-workers" style="color:var(--t1)">—</div>
+          <div class="mt-label">Active Workers</div>
+          <div class="mt-sub">All zones</div>
+        </div>
+        <div class="metric-tile">
+          <div class="mt-val" id="m-alerts" style="color:var(--amber2)">—</div>
+          <div class="mt-label">Active Alerts</div>
+          <div class="mt-sub" id="m-alerts-sub">—</div>
+        </div>
+        <div class="metric-tile">
+          <div class="mt-val" id="m-infer" style="color:var(--green2)">—</div>
+          <div class="mt-label">Inferences / min</div>
+          <div class="mt-sub">On-device only ✓</div>
+        </div>
+        <div class="metric-tile">
+          <div class="mt-val" id="m-latency" style="color:var(--teal2)">—</div>
+          <div class="mt-label">Avg Latency</div>
+          <div class="mt-sub">Target &lt;100ms</div>
+        </div>
+      </div>
+
+      <!-- Zone grid -->
+      <div class="zone-grid" id="zone-grid">
+        <!-- populated by JS -->
+      </div>
+
+      <!-- Latency + Power panels -->
+      <div class="panels-row">
+        <div class="panel">
+          <div class="panel-title">Latency vs 100ms Target</div>
+          <div id="latency-bars">
+            <!-- populated by JS -->
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Power Efficiency Score</div>
+          <div class="score-cells" id="score-cells">
+            <!-- populated by JS -->
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT BAR: Event log -->
+    <div class="rightbar">
+      <div class="rb-title">Inference Event Log</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="sb-val text-green" id="stat-total">0</div>
+          <div class="sb-label">Total Infers</div>
+        </div>
+        <div class="stat-box">
+          <div class="sb-val text-amber" id="stat-violations">0</div>
+          <div class="sb-label">Lat. Violations</div>
+        </div>
+        <div class="stat-box">
+          <div class="sb-val" style="color:var(--teal2)" id="stat-permin">0</div>
+          <div class="sb-label">Per Minute</div>
+        </div>
+        <div class="stat-box">
+          <div class="sb-val text-red" id="stat-cloud">0</div>
+          <div class="sb-label">Cloud Blocked</div>
+        </div>
+      </div>
+      <div id="event-list"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ───
+const WS_URL = 'ws://localhost:8000/ws';
+const API_URL = 'http://localhost:8000/api';
+const MODEL_LABELS = {
+  gas_anomaly:          { short:'GAS',   color:'#00c878' },
+  fall_detection:       { short:'FALL',  color:'#f0a500' },
+  vitals_classifier:    { short:'VITAL', color:'#00c8b8' },
+  thermal_segmentation: { short:'THERM', color:'#2090e0' },
+};
+
+// ─── STATE ───
+let state = { zones:{}, alerts:[], stats:{}, recent_events:[], models:{} };
+let ws = null;
+let wsRetries = 0;
+let models = {};
+
+// ─── CLOCK ───
+function tick(){
+  const now=new Date();
+  document.getElementById('clock').textContent =
+    [now.getHours(),now.getMinutes(),now.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
+}
+tick();setInterval(tick,1000);
+
+// ─── WS CONNECTION ───
+function connectWS(){
+  const dot = document.getElementById('ws-dot');
+  const pill = document.getElementById('conn-pill');
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    dot.className='ws-dot connected';
+    pill.textContent='LIVE · WS';
+    pill.className='pill pill-green';
+    wsRetries=0;
+    loadModels();
+    hideLoading();
+  };
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if(data.type==='state_update') handleStateUpdate(data);
+  };
+
+  ws.onerror = () => {
+    dot.className='ws-dot error';
+    pill.textContent='WS ERROR — using REST';
+    pill.className='pill pill-red';
+    startRestFallback();
+    hideLoading();
+  };
+
+  ws.onclose = () => {
+    dot.className='ws-dot';
+    if(wsRetries<5){
+      wsRetries++;
+      pill.textContent=`RECONNECTING... (${wsRetries})`;
+      setTimeout(connectWS, 2000*wsRetries);
+    } else {
+      startRestFallback();
+    }
+  };
+}
+
+// ─── REST FALLBACK ───
+let restInterval = null;
+function startRestFallback(){
+  if(restInterval) return;
+  loadModels();
+  hideLoading();
+  restInterval = setInterval(fetchRestState, 2000);
+  fetchRestState();
+}
+
+async function fetchRestState(){
+  try {
+    const [zonesR, statsR, eventsR, alertsR] = await Promise.all([
+      fetch(`${API_URL}/zones`),
+      fetch(`${API_URL}/stats`),
+      fetch(`${API_URL}/events?limit=20`),
+      fetch(`${API_URL}/alerts`),
+    ]);
+    const zones = await zonesR.json();
+    const stats = await statsR.json();
+    const events = await eventsR.json();
+    const alerts = await alertsR.json();
+    handleStateUpdate({ zones, stats, recent_events:events, alerts, timestamp:new Date().toISOString() });
+  } catch(err){
+    console.error('REST fetch failed',err);
+  }
+}
+
+async function loadModels(){
+  try {
+    const r = await fetch(`${API_URL}/models`);
+    models = await r.json();
+    renderModels();
+    renderLatencyBars();
+    renderScoreCells();
+  } catch(e){}
+}
+
+// ─── STATE UPDATE ───
+function handleStateUpdate(data){
+  state = {...state, ...data};
+  renderZones();
+  renderAlerts();
+  renderMetrics();
+  renderEventLog();
+  renderModelStatus();
+  renderLatencyBars();
+  renderScoreCells();
+  updateStats();
+}
+
+// ─── MODELS SIDEBAR ───
+function renderModels(){
+  const container = document.getElementById('model-list');
+  container.innerHTML = Object.values(models).map(m=>{
+    const latPct = Math.round((m.last_latency_ms||m.base_latency_ms)/100*100);
+    const latOk = (m.last_latency_ms||m.base_latency_ms) < 100;
+    const latClass = latPct>85?'bad':latPct>60?'warn':'ok';
+    const barColor = latPct>85?'var(--red)':latPct>60?'var(--amber)':'var(--green)';
+    const sizeOk = m.size_mb < 50;
+    const statusLabel = latPct>85?'⚠ HIGH LATENCY':'● RUNNING';
+    const statusColor = latPct>85?'var(--red2)':'var(--green2)';
+    const cardClass = latPct>85?'alert-state':latPct>60?'warn-state':'';
+    return `
+    <div class="model-card ${cardClass}" onclick="selectModel('${m.id}')">
+      <div class="mc-top">
+        <span class="mc-name">${m.name}</span>
+        <span class="mc-format">${m.format}</span>
+      </div>
+      <div style="font-family:var(--mono);font-size:8px;margin-bottom:5px;color:${statusColor}">${statusLabel}</div>
+      <div class="mc-row"><span class="mc-key">Size</span><span class="mc-val ${sizeOk?'ok':'bad'}">${m.size_mb} MB</span></div>
+      <div class="mc-row"><span class="mc-key">Last latency</span><span class="mc-val ${latClass}">${(m.last_latency_ms||m.base_latency_ms).toFixed(1)} ms</span></div>
+      <div class="mc-row"><span class="mc-key">Power</span><span class="mc-val ${m.power_watts>1.5?'warn':'ok'}">${m.power_watts} W</span></div>
+      <div class="mc-row"><span class="mc-key">Accuracy</span><span class="mc-val ok">${m.accuracy}%</span></div>
+      <div class="mc-row"><span class="mc-key">Cloud API</span><span class="mc-val bad">BLOCKED</span></div>
+      <div class="mc-bar"><div class="mc-bar-fill" style="width:${latPct}%;background:${barColor}"></div></div>
+      <div class="mc-note">${(m.last_latency_ms||m.base_latency_ms).toFixed(1)}ms / 100ms target</div>
+    </div>`;
+  }).join('');
+}
+
+function renderModelStatus(){
+  if(!Object.keys(models).length) return;
+  // Update latencies from events
+  state.recent_events?.slice(0,20).forEach(ev=>{
+    // find model by zone's model assignment
+  });
+}
+
+// ─── ZONES ───
+function renderZones(){
+  const container = document.getElementById('zone-grid');
+  const zones = state.zones || {};
+  container.innerHTML = Object.values(zones).map(z=>{
+    const status = z.status || 'safe';
+    const color = status==='critical'?'var(--red2)':status==='warning'?'var(--amber2)':'var(--green2)';
+    const workers = (z.workers||[]).slice(0,8);
+    const workerDots = workers.map(wid=>{
+      // Color workers by zone status
+      const wClass = status==='critical'?'wd-crit':status==='warning'?'wd-warn':'wd-safe';
+      return `<div class="wd ${wClass}">${wid.replace('W','')}</div>`;
+    }).join('');
+    const modelName = models[z.model]?.name || z.model || '—';
+    const latMs = models[z.model]?.last_latency_ms || models[z.model]?.base_latency_ms || '—';
+    const val = typeof z.value === 'number' ? z.value.toFixed(z.value > 10 ? 0 : 2) : '—';
+    return `
+    <div class="zone-card ${status}">
+      <div class="zc-strip"></div>
+      <div class="zc-header">
+        <div>
+          <div class="zc-name" style="color:${color}">${z.name}</div>
+          <div class="zc-id">Zone ${z.id}</div>
+        </div>
+        <span class="zc-status mono" style="color:${color};font-size:9px">${status.toUpperCase()}</span>
+      </div>
+      <div class="zc-reading" style="color:${color}">${val}</div>
+      <div class="zc-unit">${z.unit || ''}</div>
+      <div class="zc-workers">${workerDots}</div>
+      <div class="zc-model">${modelName} · ${typeof latMs==='number'?latMs.toFixed(0)+'ms':latMs}</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── ALERTS ───
+function renderAlerts(){
+  const container = document.getElementById('alert-banners');
+  const alerts = state.alerts || [];
+  document.getElementById('alert-pill').textContent = alerts.length + ' ALERT' + (alerts.length!==1?'S':'');
+  document.getElementById('alert-pill').className = alerts.length>0?'pill pill-red':'pill pill-amber';
+  container.innerHTML = alerts.map(a=>`
+    <div class="alert-banner mb-8">
+      <div class="ab-icon">⚠</div>
+      <div class="ab-body">
+        <div class="ab-title">${a.label?.replace(/_/g,' ')} — Zone ${a.zone_id} · ${a.zone_name}</div>
+        <div class="ab-detail">${a.value} ${a.unit} · ${a.model} · ${a.latency_ms?.toFixed(1)||'?'}ms · Conf ${a.confidence||'?'}% · ${formatTime(a.timestamp)}</div>
+      </div>
+      <button class="ab-ack" onclick="ackAlert('${a.zone_id}')">ACK</button>
+    </div>
+  `).join('');
+}
+
+async function ackAlert(zoneId){
+  try {
+    await fetch(`${API_URL}/alerts/${zoneId}/acknowledge`,{method:'POST'});
+    if(restInterval) fetchRestState();
+  } catch(e){console.error(e)}
+}
+
+// ─── METRICS ───
+function renderMetrics(){
+  const s = state.stats || {};
+  const alerts = state.alerts || [];
+  document.getElementById('m-workers').textContent = s.workers || state.stats?.active_workers || '—';
+  document.getElementById('m-alerts').textContent = alerts.length;
+  document.getElementById('m-alerts-sub').textContent = alerts.length>0?`Last: ${formatTime(alerts[0]?.timestamp)}`:'All clear';
+  document.getElementById('m-infer').textContent = (s.per_minute||0).toLocaleString();
+  document.getElementById('infer-pill').textContent = (s.per_minute||0)+' INF/MIN';
+  // Calc avg latency from models
+  const latencies = Object.values(models).map(m=>m.last_latency_ms||m.base_latency_ms).filter(Boolean);
+  const avgLat = latencies.length ? (latencies.reduce((a,b)=>a+b,0)/latencies.length).toFixed(0) : '—';
+  document.getElementById('m-latency').textContent = avgLat+(avgLat!=='—'?'ms':'');
+  document.getElementById('sb-workers').textContent = s.workers||'—';
+  document.getElementById('sb-zones').textContent = s.zones||'—';
+  document.getElementById('sb-infer').textContent = (s.total||0).toLocaleString();
+  document.getElementById('violation-count').textContent = s.constraint_violations||0;
+  document.getElementById('violation-count').style.color = (s.constraint_violations||0)>0?'var(--amber2)':'var(--green2)';
+}
+
+// ─── LATENCY BARS ───
+function renderLatencyBars(){
+  const container = document.getElementById('latency-bars');
+  if(!Object.keys(models).length) return;
+  container.innerHTML = Object.values(models).map(m=>{
+    const lat = m.last_latency_ms || m.base_latency_ms || 0;
+    const pct = Math.min(100, (lat/100)*100);
+    const color = pct>85?'var(--red)':pct>60?'var(--amber)':'var(--green)';
+    const valColor = pct>85?'var(--red2)':pct>60?'var(--amber2)':'var(--green2)';
+    return `
+    <div class="lat-row">
+      <div class="lat-name">${m.name.split(' ').slice(0,2).join(' ')}</div>
+      <div class="lat-track">
+        <div class="lat-fill" style="width:${pct}%;background:${color}"></div>
+        <div class="lat-line"></div>
+      </div>
+      <div class="lat-val" style="color:${valColor}">${lat.toFixed(0)}ms</div>
+    </div>`;
+  }).join('');
+}
+
+// ─── SCORE RINGS ───
+function renderScoreCells(){
+  const container = document.getElementById('score-cells');
+  if(!Object.keys(models).length) return;
+  container.innerHTML = Object.values(models).map(m=>{
+    const score = m.power_score || 70;
+    const r=18, circ=2*Math.PI*r;
+    const offset = circ * (1 - score/100);
+    const info = MODEL_LABELS[m.id] || {short:m.id.slice(0,4).toUpperCase(),color:'#8faab0'};
+    return `
+    <div class="score-cell">
+      <div class="score-label">${info.short}</div>
+      <div class="score-ring">
+        <svg width="44" height="44" viewBox="0 0 44 44">
+          <circle cx="22" cy="22" r="${r}" fill="none" stroke="var(--b1)" stroke-width="4"/>
+          <circle cx="22" cy="22" r="${r}" fill="none" stroke="${info.color}" stroke-width="4"
+            stroke-dasharray="${circ.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"
+            stroke-linecap="round"/>
+        </svg>
+        <div class="score-num" style="color:${info.color}">${score}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── EVENT LOG ───
+function renderEventLog(){
+  const container = document.getElementById('event-list');
+  const events = state.recent_events || [];
+  container.innerHTML = events.slice(0,25).map(e=>{
+    const sev = e.severity||'safe';
+    const lat = e.latency_ms?e.latency_ms.toFixed(1)+'ms':'—';
+    const latColor = (e.latency_ms||0)>85?'var(--red2)':(e.latency_ms||0)>60?'var(--amber2)':'var(--green2)';
+    return `
+    <div class="event-item">
+      <div class="ei-top">
+        <div class="ei-dot ${sev}"></div>
+        <span class="ei-label ${sev}">${e.label?.replace(/_/g,' ')||sev.toUpperCase()}</span>
+        <span class="ei-time">${formatTime(e.timestamp)}</span>
+      </div>
+      <div class="ei-zone">${e.zone_name||e.zone_id} · ${e.value} ${e.unit||''}</div>
+      <div class="ei-model">${e.model||'—'} · ${e.model_format||''}</div>
+      <div class="flex gap-6 mt-4">
+        <span class="ei-lat" style="color:${latColor}">${lat}</span>
+        <span class="ei-lat text-muted">Conf ${e.confidence||'?'}%</span>
+        <span class="ei-lat" style="color:var(--green2);font-size:8px">☁ BLOCKED</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── STATS ───
+function updateStats(){
+  const s = state.stats||{};
+  document.getElementById('stat-total').textContent = (s.total||0).toLocaleString();
+  document.getElementById('stat-violations').textContent = s.latency_violations||0;
+  document.getElementById('stat-permin').textContent = s.per_minute||0;
+  document.getElementById('stat-cloud').textContent = s.cloud_blocked||0;
+}
+
+function selectModel(id){
+  document.querySelectorAll('.model-card').forEach(c=>c.classList.remove('selected'));
+  const cards=document.querySelectorAll('.model-card');
+  // Find by index matching model order
+  const idx=Object.keys(models).indexOf(id);
+  if(cards[idx]) cards[idx].classList.add('selected');
+}
+
+function formatTime(iso){
+  if(!iso)return'—';
+  const d=new Date(iso);
+  return [d.getHours(),d.getMinutes(),d.getSeconds()].map(n=>String(n).padStart(2,'0')).join(':');
+}
+
+function hideLoading(){
+  setTimeout(()=>{
+    const o=document.getElementById('loading-overlay');
+    o.classList.add('hidden');
+    setTimeout(()=>o.remove(),600);
+  },800);
+}
+
+// ─── BOOT ───
+connectWS();
+// Also try REST immediately as fallback check
+setTimeout(()=>{
+  if(!ws||ws.readyState!==WebSocket.OPEN){
+    startRestFallback();
+  }
+},3000);
+</script>
+</body>
+</html>
